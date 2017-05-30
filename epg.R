@@ -291,8 +291,8 @@ PCxG <- (OCxG + DCxG) * appWeight
 EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
 # Produce final data frame (Sorted by EPG)
-epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),] 
-colnames(epgFrame) <- c("Full Name", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
+epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$TotalSalary, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),] 
+colnames(epgFrame) <- c("Full Name", "Salary ($)", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
 
 # Optional: automatically display data frame after creation
 # View(epgFrame)
