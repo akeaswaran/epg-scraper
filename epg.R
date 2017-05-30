@@ -216,16 +216,28 @@ xGoalsPlyrTxt <- xGoalsPlyrTblHTML$getElementAttribute("outerHTML")[[1]]
 xGoalsPlyrTable <- readHTMLTable(xGoalsPlyrTxt, header=TRUE, as.data.frame=TRUE)[[1]]
 xGoalsPlyrTable[['Touch%']] <- as.numeric(gsub("%", "", xGoalsPlyrTable[['Touch%']]))
 
+# -------
+
+# Go to ASA's most recent Player Salaries sheet
+remDr$navigate("http://www.americansocceranalysis.com/april-15-2017/")
+
+# Scrape player salaries table into R data frame
+plyrSalariesHTML <- remDr$findElement(using = "css", "#block-yui_3_17_2_3_1493151916250_3677 > div > table")
+plyrSalariesTxt <- plyrSalariesHTML$getElementAttribute("outerHTML")[[1]]
+plyrSalariesTable <- readHTMLTable(plyrSalariesTxt, header=TRUE, as.data.frame=TRUE)[[1]]
+
 # close the Selenium connection to clean up
 remDr$close()
 
 # -------
 
-# Do some minor cleanup - replace team names with Abbrev and add full name to player table
+# Do some minor cleanup - replace team names with Abbrev and add full name to player table; clean up salaries
 xGoalsTable$Team <- mapvalues(xGoalsTable$Team, 
                                    from=c("Atlanta United","Chicago","Columbus","Colorado","FC Dallas","DC United","Houston","L.A. Galaxy","Minnesota United","Montreal","New England","New York City FC","New York","Orlando City","Philadelphia","Portland","Salt Lake","Seattle","San Jose","Kansas City","Toronto","Vancouver"),
                                    to=teams)
 xGoalsPlyrTable$FullName <- paste(xGoalsPlyrTable$First,xGoalsPlyrTable$Last)
+plyrSalariesTable$FullName <- paste(plyrSalariesTable$First,plyrSalariesTable$Last)
+plyrSalariesTable$TotalSalary <- as.numeric(gsub("\\$","", gsub(",","", gsub(",","", gsub(",","", plyrSalariesTable$`Base Salary`))))) + as.numeric(gsub("\\$","", gsub(",","", gsub(",","", gsub(",","", plyrSalariesTable$`Guaranteed Compensation`)))))
 
 # For every player, we want to:
     # 1. Get the necessary stats for them: xGoals and xAssists, etc
@@ -245,44 +257,59 @@ dt1 <- data.table(xGoalsPlyrTable, key = "Team")
 dt2 <- data.table(xGoalsTable, key = "Team")
 dt3 <- data.table(passTable, key = "Player")
 dt4 <- data.table(defTable, key = "Player")
+dt5 <- data.table(plyrSalariesTable, key = "FullName")
 innerJoinOnTeamTable <- dt1[dt2]
 innerJoinOnPassTable <- data.table(innerJoinOnTeamTable, key="FullName")[dt3]
 innerJoinOnDefTable <- innerJoinOnPassTable[dt4]
+joinOnSalariesTable <- dt5[innerJoinOnDefTable]
 
 # Do OCxG calculation
-xGProportion <- (as.numeric(as.character(innerJoinOnDefTable[['xG+xAp96']])) / as.numeric(as.character(innerJoinOnDefTable[['xGF/g']])))
-plyrSuccessfulPassTotal <- (as.numeric(as.character(innerJoinOnDefTable[['PS%']])) / 100) * as.numeric(as.character(innerJoinOnDefTable[['AvgP']]))
+xGProportion <- (as.numeric(as.character(joinOnSalariesTable[['xG+xAp96']])) / as.numeric(as.character(joinOnSalariesTable[['xGF/g']])))
+plyrSuccessfulPassTotal <- (as.numeric(as.character(joinOnSalariesTable[['PS%']])) / 100) * as.numeric(as.character(joinOnSalariesTable[['AvgP']]))
 teamSumSuccessfulPasses <- sum(plyrSuccessfulPassTotal)
 successfulPassProp <- (plyrSuccessfulPassTotal / teamSumSuccessfulPasses)
-touchPercent <- (as.numeric(innerJoinOnDefTable[['Touch%']])) / 100
-OCxG <- (xGProportion + successfulPassProp + touchPercent) * rescale((as.numeric(as.character(innerJoinOnDefTable[['G+A']])) / as.numeric(as.character(innerJoinOnDefTable[['GF']]))), c(0,1))
+touchPercent <- (as.numeric(joinOnSalariesTable[['Touch%']])) / 100
+OCxG <- (xGProportion + successfulPassProp + touchPercent + (as.numeric(as.character(joinOnSalariesTable[['G+A']])) / as.numeric(as.character(joinOnSalariesTable[['GF']]))))
+OCxG <- rescale(OCxG, c(0,1))
 
 # Do DCxG calculation
-tklProp <- (as.numeric(innerJoinOnDefTable[['Tackles']]) / sum(as.numeric(innerJoinOnDefTable[['Tackles']])))
-intProp <- (as.numeric(innerJoinOnDefTable[['Inter']]) / sum(as.numeric(innerJoinOnDefTable[['Inter']])))
-offProp <- (as.numeric(innerJoinOnDefTable[['Offsides']]) / sum(as.numeric(innerJoinOnDefTable[['Offsides']])))
-clrProp <- (as.numeric(innerJoinOnDefTable[['Clear']]) / sum(as.numeric(innerJoinOnDefTable[['Clear']])))
-blkProp <- (as.numeric(innerJoinOnDefTable[['Blocks']]) / sum(as.numeric(innerJoinOnDefTable[['Blocks']])))
-ownGoalWeight <- (as.numeric(innerJoinOnDefTable[['OwnG']]) * -0.1)
-plyrAvgRat <- ((as.numeric(innerJoinOnDefTable[['Tackles']])) + as.numeric(innerJoinOnDefTable[['Inter']]) + as.numeric(innerJoinOnDefTable[['Offsides']]) + as.numeric(innerJoinOnDefTable[['Clear']]) + as.numeric(innerJoinOnDefTable[['Blocks']])) / 5
-sumAvgPlyrRat <- ((sum(as.numeric(innerJoinOnDefTable[['Tackles']])) / length(as.numeric(innerJoinOnDefTable[['Tackles']]) + sum(as.numeric(innerJoinOnDefTable[['Offsides']])) / length(as.numeric(innerJoinOnDefTable[['Offsides']])) + sum(as.numeric(innerJoinOnDefTable[['Clear']])) / length(as.numeric(innerJoinOnDefTable[['Clear']])) + sum(as.numeric(innerJoinOnDefTable[['Inter']])) / length(as.numeric(innerJoinOnDefTable[['Inter']])) + sum(as.numeric(innerJoinOnDefTable[['Blocks']])) / length(as.numeric(innerJoinOnDefTable[['Blocks']])))) / 5)
+tklProp <- (as.numeric(joinOnSalariesTable[['Tackles']]) / sum(as.numeric(joinOnSalariesTable[['Tackles']])))
+intProp <- (as.numeric(joinOnSalariesTable[['Inter']]) / sum(as.numeric(joinOnSalariesTable[['Inter']])))
+offProp <- (as.numeric(joinOnSalariesTable[['Offsides']]) / sum(as.numeric(joinOnSalariesTable[['Offsides']])))
+clrProp <- (as.numeric(joinOnSalariesTable[['Clear']]) / sum(as.numeric(joinOnSalariesTable[['Clear']])))
+blkProp <- (as.numeric(joinOnSalariesTable[['Blocks']]) / sum(as.numeric(joinOnSalariesTable[['Blocks']])))
+ownGoalWeight <- (as.numeric(joinOnSalariesTable[['OwnG']]) * -0.1)
+plyrAvgRat <- ((as.numeric(joinOnSalariesTable[['Tackles']])) + as.numeric(joinOnSalariesTable[['Inter']]) + as.numeric(joinOnSalariesTable[['Offsides']]) + as.numeric(joinOnSalariesTable[['Clear']]) + as.numeric(joinOnSalariesTable[['Blocks']])) / 5
+sumAvgPlyrRat <- ((sum(as.numeric(joinOnSalariesTable[['Tackles']])) / length(as.numeric(joinOnSalariesTable[['Tackles']]) + sum(as.numeric(joinOnSalariesTable[['Offsides']])) / length(as.numeric(joinOnSalariesTable[['Offsides']])) + sum(as.numeric(joinOnSalariesTable[['Clear']])) / length(as.numeric(joinOnSalariesTable[['Clear']])) + sum(as.numeric(joinOnSalariesTable[['Inter']])) / length(as.numeric(joinOnSalariesTable[['Inter']])) + sum(as.numeric(joinOnSalariesTable[['Blocks']])) / length(as.numeric(joinOnSalariesTable[['Blocks']])))) / 5)
 DCxG <- rescale(((plyrAvgRat - sumAvgPlyrRat) / sumAvgPlyrRat), c(0,1))    
  
 # Calculate weight for play time   
-appWeight <- (as.numeric(as.character(innerJoinOnDefTable$Min)) / (as.numeric(as.character(innerJoinOnDefTable$TotalPossibleMinutes))))
-appWeight <- ifelse(appWeight < 0.75, appWeight * -1.1, appWeight * 1.1)
+appWeight <- (as.numeric(as.character(joinOnSalariesTable$Min)) / (as.numeric(as.character(joinOnSalariesTable$TotalPossibleMinutes))))
+# appWeight <- ifelse(appWeight < 0.75, appWeight * -1, appWeight)
 
 # Calculate PCxG and EPG
-PCxG <- abs((OCxG + DCxG) * appWeight)
+PCxG <- (OCxG + DCxG) * appWeight
 EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
 # Produce final data frame (Sorted by EPG)
-epgFrame = data.frame(innerJoinOnDefTable$FullName, innerJoinOnDefTable$Min, as.numeric(innerJoinOnDefTable$Apps), innerJoinOnDefTable$TotalPossibleMinutes, OCxG, DCxG, PCxG, EPG)[order(-EPG),] 
-colnames(epgFrame) <- c("Full Name", "Total Minutes","Appearances", "Total Possible Minutes", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
-
-# Optional: create a CSV of this data
-write.csv(epgFrame, file = "epg.csv")
+epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),] 
+colnames(epgFrame) <- c("Full Name", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
 
 # Optional: automatically display data frame after creation
 # View(epgFrame)
+
+# Optional: create a CSV of this data
+# write.csv(epgFrame, file = "epg.csv")
+
+# Optional: plot appearances vs EPG
+# appPercent <- appWeight * 100
+# plot(appPercent, EPG, xlim=c(0,100), main="Correlating Appearances with EPG", xlab="% Total Possible Minutes", ylab="EPG")
+# abline(fit <- lm(EPG ~ appPercent), col="red")
+# legend("topleft", bty="n", legend=paste("R^2 is", format(summary(fit)$adj.r.squared, digits=4)))
+
+# Optional: plot Salary vs EPG
+# millionsSal <- as.numeric(as.character(joinOnSalariesTable$TotalSalary)) / 10^6
+# plot(millionsSal, EPG, main="Correlating Salaries with EPG", xlab="$ (in millions)", ylab="EPG")
+# abline(goalFit <- lm(as.numeric(EPG) ~ millionsSal), col="red")
+# legend("topright", bty="n", legend=paste("R^2 is", format(summary(goalFit)$adj.r.squared, digits=4)))
 
