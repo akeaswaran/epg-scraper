@@ -9,6 +9,8 @@ require(plyr)
 require(data.table)
 require(stringi)
 
+rm(list=ls())
+
 # Data set and method to convert foreign chars into normal English ones (from StackOverflow)
 fromto <- read.table(text="
 from to
@@ -56,26 +58,8 @@ replaceforeignchars <- function(dat,fromto) {
     dat
 }
 
-appendToFrame<-function(dt, elems)
-{
-    n<-attr(dt, 'rowcount')
-    if (is.null(n))
-        n<-nrow(dt)
-    if (n==nrow(dt))
-    {
-        tmp<-elems[1]
-        tmp[[1]]<-rep(NA,n)
-        dt<-rbindlist(list(dt, tmp), fill=TRUE, use.names=TRUE)
-        setattr(dt,'rowcount', n)
-    }
-    pos<-as.integer(match(names(elems), colnames(dt)))
-    for (j in seq_along(pos))
-    {
-        set(dt, i=as.integer(n+1), pos[[j]], elems[[j]])
-    }
-    setattr(dt,'rowcount',n+1)
-    return(dt)
-}
+# Team dataset
+teams <- c("ATL","CHI","CLB","COL","DAL","DC","HOU","LA","MN","MTL","NE","NYC","NYRB","ORL","PHI","POR","RSL","SEA","SJ","SKC","TOR","VAN")
 
 # start Selenium server with any of the following (change the browser name to what's specified):
 # browsername: firefox; java -Dwebdriver.gecko.driver=geckodriver -jar selenium-server-standalone-3.4.0.jar
@@ -89,7 +73,7 @@ remDr <- remoteDriver(remoteServerAddr = "localhost"
 remDr$open()
 
 team_urls <- c("https://www.whoscored.com/Teams/26666/Show/USA-Atlanta-United",
-               "https://www.whoscored.com/Teams/26666/Show/USA-Chicago-Fire",
+               "https://www.whoscored.com/Teams/1118/Show/USA-Chicago-Fire",
                "https://www.whoscored.com/Teams/1120/Show/USA-Colorado-Rapids",
                "https://www.whoscored.com/Teams/1113/Show/USA-Columbus-Crew",
                "https://www.whoscored.com/Teams/1119/Show/USA-DC-United",
@@ -136,24 +120,27 @@ webElem$clickElement()
 # Scrape passing table html into R data frame
 tempPassTableHTML <- remDr$findElement(using = 'id', value = "statistics-table-passing")
 tempPassTableTxt <- tempPassTableHTML$getElementAttribute("outerHTML")[[1]]
+# passTable <- rbind(passTable, readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[[1]])
 passTable <- readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[[1]]
-# passTable <- appendToFrame(passTable, readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[[1]])
-
 
 # WhoScored's player data often contains more than we need. 
 # Strip out the position, age, etc and only put the player's actual name back in the table.
 y <- strsplit(as.character(passTable$Player), " ")
 passTable$Player <- lapply(y, function(x) { 
     # Check if the player has a second last name (IE: the third element when string splitting is NOT his age - EX: Leando Gonzalez Pirez)
-    if (!grepl("[-]?[0-9]+[.]?[0-9]*|[-]?[0-9]+[L]?|[-]?[0-9]+[.]?[0-9]*[eE][0-9]+", x[3]))
+    if (!grepl("[-]?[0-9]+[.]?[0-9]*|[-]?[0-9]+[L]?|[-]?[0-9]+[.]?[0-9]*[eE][0-9]+", x[3]) && x[3] != 'NA') {
         paste(x[1],x[2],x[3])
-    else
+    } else if (!grepl("[-]?[0-9]+[.]?[0-9]*|[-]?[0-9]+[L]?|[-]?[0-9]+[.]?[0-9]*[eE][0-9]+", x[2]) && x[2] != 'NA') {
         paste(x[1],x[2])
+    } else {
+        paste(x[1])
+    }
 })
 
 # Fix character encoding issues and replace foreign chars
 passTable$Player <- replaceforeignchars(iconv(as.character(passTable$Player), from="UTF-8", to="ISO-8859-1"), fromto)
 
+passTable$Player <- as.character(passTable$Player)
 
 # -------
 
@@ -214,8 +201,8 @@ EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
 # Produce resulting data frame (Sorted by EPG)
 epgFrame = data.frame(innerJoinOnPassTable$FullName, innerJoinOnPassTable[['xG+xAp96']], innerJoinOnPassTable[['xGF/g']], innerJoinOnPassTable[['PS%']], innerJoinOnPassTable[['AvgP']], teamSumSuccessfulPasses, PCxG, EPG)[order(-EPG),] 
+write.csv(epgFrame, file = "epg.csv")
 
 # Optional: automatically display data frame after creation
 # View(epgFrame)
-
 
