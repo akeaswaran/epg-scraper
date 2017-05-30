@@ -1,4 +1,4 @@
-# EPG Calculator
+# EPG Scraper
 # Author: Akshay Easwaran <akeaswaran@me.com>
 # License: MIT
 
@@ -8,6 +8,7 @@ require(XML)
 require(plyr)
 require(data.table)
 require(stringi)
+require(calibrate)
 
 rm(list=ls())
 
@@ -117,6 +118,8 @@ remDr$navigate("https://www.whoscored.com/Teams/26666/Show/USA-Atlanta-United")
 webElem <- remDr$findElement(using = "css", "li.in-squad-detailed-view:nth-child(4) > a:nth-child(1)")
 webElem$clickElement()
 
+# ~~ some waiting logic here ~~
+
 # Scrape passing table html into R data frame
 tempPassTableHTML <- remDr$findElement(using = 'id', value = "statistics-table-passing")
 tempPassTableTxt <- tempPassTableHTML$getElementAttribute("outerHTML")[[1]]
@@ -138,9 +141,59 @@ passTable$Player <- lapply(y, function(x) {
 })
 
 # Fix character encoding issues and replace foreign chars
-passTable$Player <- replaceforeignchars(iconv(as.character(passTable$Player), from="UTF-8", to="ISO-8859-1"), fromto)
+passTable$Player <- as.character(replaceforeignchars(iconv(as.character(passTable$Player), from="UTF-8", to="ISO-8859-1"), fromto))
 
-passTable$Player <- as.character(passTable$Player)
+# Find sum of appearances
+app <- strsplit(as.character(passTable$Apps), "\\(")
+passTable$Apps <- lapply(app, function(a) {
+    if (length(a) > 1) {
+        sum <- as.numeric(a[1]) + as.numeric(gsub(")", "", a[2]))
+        paste(sum)
+    } else {
+        paste(a[1])
+    }
+})
+
+passTable$TotalPossibleMinutes <- as.numeric(as.character(passTable$Apps)) * 96
+
+# Do Defensive stats now
+
+# Find "Defensive" tab and click
+webElem <- remDr$findElement(using = "css", "li.in-squad-detailed-view:nth-child(2) > a:nth-child(1)")
+webElem$clickElement()
+
+# Scrape defensive stats table html into R data frame
+tempDefTableHTML <- remDr$findElement(using = 'id', value = "statistics-table-defensive")
+tempDefTableTxt <- tempDefTableHTML$getElementAttribute("outerHTML")[[1]]
+# defTable <- rbind(defTable, readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[[1]])
+defTable <- readHTMLTable(tempDefTableTxt, header=TRUE, as.data.frame=TRUE)[[1]]
+
+# Clean data just like we did for passing
+y <- strsplit(as.character(defTable$Player), " ")
+defTable$Player <- lapply(y, function(x) { 
+    if (!grepl("[-]?[0-9]+[.]?[0-9]*|[-]?[0-9]+[L]?|[-]?[0-9]+[.]?[0-9]*[eE][0-9]+", x[3]) && x[3] != 'NA') {
+        paste(x[1],x[2],x[3])
+    } else if (!grepl("[-]?[0-9]+[.]?[0-9]*|[-]?[0-9]+[L]?|[-]?[0-9]+[.]?[0-9]*[eE][0-9]+", x[2]) && x[2] != 'NA') {
+        paste(x[1],x[2])
+    } else {
+        paste(x[1])
+    }
+})
+
+defTable$Player <- as.character(replaceforeignchars(iconv(as.character(defTable$Player), from="UTF-8", to="ISO-8859-1"), fromto))
+
+app <- strsplit(as.character(defTable$Apps), "\\(")
+defTable$Apps <- lapply(app, function(a) {
+    if (length(a) > 1) {
+        sum <- as.numeric(a[1]) + as.numeric(gsub(")", "", a[2]))
+        paste(sum)
+    } else {
+        paste(a[1])
+    }
+})
+
+defTable$TotalPossibleMinutes <- as.numeric(as.character(defTable$Apps)) * 96
+
 
 # -------
 
@@ -161,6 +214,7 @@ remDr$navigate("http://www.americansocceranalysis.com/player-xg-2017/")
 xGoalsPlyrTblHTML <- remDr$findElement(using = "css", "#block-yui_3_17_2_23_1488824086586_3871 > div > table")
 xGoalsPlyrTxt <- xGoalsPlyrTblHTML$getElementAttribute("outerHTML")[[1]]
 xGoalsPlyrTable <- readHTMLTable(xGoalsPlyrTxt, header=TRUE, as.data.frame=TRUE)[[1]]
+xGoalsPlyrTable[['Touch%']] <- as.numeric(gsub("%", "", xGoalsPlyrTable[['Touch%']]))
 
 # close the Selenium connection to clean up
 remDr$close()
@@ -181,7 +235,9 @@ xGoalsPlyrTable$FullName <- paste(xGoalsPlyrTable$First,xGoalsPlyrTable$Last)
 # After completion, we need to display table
 
 # Formulas: 
-# PCxG=(PxG/TxG)+(((PSPxG/100) * PPxG)/TSPxG)
+# OCxG = ((PxG / TxG) + (((PSPxG / 100) * PPxG) / TSPxG) + (TPxG / 100))
+# DCxG = 
+# PCxG=abs((OCxG + DCxG) * (Apps / TPM))
 # EPG=[(3 * 0.483)+(1 * 0.281)] * PCxG
 
 # Do inner joins on tables to get a fully combined table with all necessary data in one place
@@ -196,11 +252,18 @@ xGProportion <- (as.numeric(as.character(innerJoinOnPassTable[['xG+xAp96']])) / 
 plyrSuccessfulPassTotal <- (as.numeric(as.character(innerJoinOnPassTable[['PS%']])) / 100) * as.numeric(as.character(innerJoinOnPassTable[['AvgP']]))
 teamSumSuccessfulPasses <- sum(plyrSuccessfulPassTotal)
 successfulPassProp <- (plyrSuccessfulPassTotal / teamSumSuccessfulPasses)
-PCxG <- xGProportion + successfulPassProp
+touchPercent <- (as.numeric(innerJoinOnPassTable[['Touch%']])) / 100
+appWeight <- (as.numeric(as.character(innerJoinOnPassTable$Min)) / (as.numeric(as.character(innerJoinOnPassTable$TotalPossibleMinutes))))
+appWeight <- ifelse(appWeight < 0.75, appWeight * -1.1, appWeight * 1.1)
+
+PCxG <- abs((xGProportion + successfulPassProp + touchPercent) * appWeight)
 EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
 # Produce resulting data frame (Sorted by EPG)
-epgFrame = data.frame(innerJoinOnPassTable$FullName, innerJoinOnPassTable[['xG+xAp96']], innerJoinOnPassTable[['xGF/g']], innerJoinOnPassTable[['PS%']], innerJoinOnPassTable[['AvgP']], teamSumSuccessfulPasses, PCxG, EPG)[order(-EPG),] 
+epgFrame = data.frame(innerJoinOnPassTable$FullName, innerJoinOnPassTable$Min, as.numeric(innerJoinOnPassTable$Apps), innerJoinOnPassTable$TotalPossibleMinutes, innerJoinOnPassTable[['xG+xAp96']], innerJoinOnPassTable[['xGF/g']], innerJoinOnPassTable[['PS%']], innerJoinOnPassTable[['AvgP']], teamSumSuccessfulPasses, touchPercent, PCxG, EPG)[order(-EPG),] 
+colnames(epgFrame) <- c("Full Name", "Total Minutes","Appearances", "Total Possible Minutes", "xG+xAp96", "Team xGF/g", "% Successful Passes", "Average Passes", "Team Total Successful Passes","% of Team Touches", "Expected Player Contribution to Team", "EPG")
+
+# Optional: create a CSV of this data
 write.csv(epgFrame, file = "epg.csv")
 
 # Optional: automatically display data frame after creation
