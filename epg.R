@@ -170,7 +170,7 @@ remDr$close()
 # Do some minor cleanup - replace team names with Abbrev and add full name to player table
 xGoalsTable$Team <- mapvalues(xGoalsTable$Team, 
                                    from=c("Atlanta United","Chicago","Columbus","Colorado","FC Dallas","DC United","Houston","L.A. Galaxy","Minnesota United","Montreal","New England","New York City FC","New York","Orlando City","Philadelphia","Portland","Salt Lake","Seattle","San Jose","Kansas City","Toronto","Vancouver"),
-                                   to=c("ATL","CHI","CLB","COL","DAL","DC","HOU","LA","MN","MTL","NE","NYC","NYRB","ORL","PHI","POR","RSL","SEA","SJ","SKC","TOR","VAN"))
+                                   to=teams)
 xGoalsPlyrTable$FullName <- paste(xGoalsPlyrTable$First,xGoalsPlyrTable$Last)
 
 # For every player, we want to:
