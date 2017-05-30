@@ -285,7 +285,6 @@ DCxG <- rescale(((plyrAvgRat - sumAvgPlyrRat) / sumAvgPlyrRat), c(0,1))
  
 # Calculate weight for play time   
 appWeight <- (as.numeric(as.character(joinOnSalariesTable$Min)) / (as.numeric(as.character(joinOnSalariesTable$TotalPossibleMinutes))))
-# appWeight <- ifelse(appWeight < 0.75, appWeight * -1, appWeight)
 
 # Calculate PCxG and EPG
 PCxG <- (OCxG + DCxG) * appWeight
