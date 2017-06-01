@@ -88,26 +88,41 @@ team_urls <- c("https://www.whoscored.com/Teams/26666/Show/USA-Atlanta-United",
 teamUrlTable <- data.frame(teams, team_urls)
 
 loadWSDataFrame <- function(driver, tableCssSelector, buttonCssSelector) {
-    # Find "Passing" tab and click
+    print('Building data frame from WhoScored...')
+
+    # wait a little bit in the interim
+    Sys.sleep(0.5)
+    webElem <- driver$findElement("css", "body")
+    webElem$sendKeysToElement(list(key = "down_arrow"))
+    webElem$sendKeysToElement(list(key = "down_arrow"))
+    Sys.sleep(0.5)
+
+    # Find the right tab
     webElem <- driver$findElement(using = "css", buttonCssSelector)
-    webElem$clickElement()
 
     # ~~ some waiting logic here ~~
     tempPassTableHTML <- driver$findElement(using = 'id', value = tableCssSelector)
     webElem$clickElement()
     while (webElem$getElementAttribute('class') != "selected") {
-        Sys.sleep(0.5)
+        print("waiting for tab click, reclicking after 1 second...")
+        # move the page just to possibly trigger the load
+        webElem$sendKeysToElement(list(key = "down_arrow"))
+        webElem$sendKeysToElement(list(key = "down_arrow"))
         webElem$clickElement()
+        Sys.sleep(1)
     }
 
     while (grepl("is-updating", tempPassTableHTML$getElementAttribute("outerHTML"))) {
-        Sys.sleep(0.5)
         print("waiting for page load...")
+        #  move the page just to possibly trigger the load
+        webElem$sendKeysToElement(list(key = "down_arrow"))
+        webElem$sendKeysToElement(list(key = "down_arrow"))
+        Sys.sleep(1)
     }
-    # Scrape passing table html into R data frame
 
+    Sys.sleep(1)
+    # Scrape table html into R data frame
     tempPassTableTxt <- tempPassTableHTML$getElementAttribute("outerHTML")[[1]]
-    # passTable <- rbind(passTable, readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[[1]])
     producedFrame <- readHTMLTable(tempPassTableTxt, header=TRUE, as.data.frame=TRUE)[['top-player-stats-summary-grid']]
 
     # WhoScored's player data often contains more than we need.
@@ -143,6 +158,7 @@ loadWSDataFrame <- function(driver, tableCssSelector, buttonCssSelector) {
 }
 
 buildASATables <- function(remDr) {
+    print('Building ASA tables...')
     # Go to ASA's Team xGoals sheet
     remDr$navigate("http://www.americansocceranalysis.com/team-xg-2017/")
 
@@ -184,17 +200,22 @@ buildASATables <- function(remDr) {
 }
 
 populateTeamEPG <- function(remDr, teamAbbrev) {
+    print(paste0('Calculating EPG for ', teamAbbrev, '...'))
     teamUrl <- teamUrlTable$team_urls[which(teamUrlTable$teams == teamAbbrev)]
 
     # navigate to WhoScored
+    print(paste0('Navigating to ', teamUrl, '...'))
     remDr$navigate(as.character(teamUrl))
 
-    # Scrape passing and defensive stats for the team from WhoScored
+    # Scrape passing stats for the team from WhoScored
+    print(paste0('Scraping pass stats for ', teamAbbrev, '...'))
     passTable <- loadWSDataFrame(remDr, "statistics-table-passing", "li.in-squad-detailed-view:nth-child(4) > a:nth-child(1)")
+
+    # Scrape defenesive stats for the team from WhoScored
+    print(paste0('Scraping def stats for ', teamAbbrev, '...'))
     defTable <- loadWSDataFrame(remDr, "statistics-table-defensive", "li.in-squad-detailed-view:nth-child(2) > a:nth-child(1)")
 
-    # remDr$close()
-
+    print(paste0('Running calculations for ', teamAbbrev, '...'))
     # For every player, we want to:
     # 1. Get the necessary stats for them: xGoals and xAssists, etc
     # 2. Get necessary team stats (map team abbrev to team name)
@@ -221,11 +242,21 @@ populateTeamEPG <- function(remDr, teamAbbrev) {
 
     # Do OCxG calculation
     xGProportion <- (as.numeric(as.character(joinOnSalariesTable[['xG+xAp96']])) / as.numeric(as.character(joinOnSalariesTable[['xGF/g']])))
+    xGProportion[is.na(xGProportion)] <- 0
+
     plyrSuccessfulPassTotal <- (as.numeric(as.character(joinOnSalariesTable[['PS%']])) / 100) * as.numeric(as.character(joinOnSalariesTable[['AvgP']]))
+    plyrSuccessfulPassTotal[is.na(plyrSuccessfulPassTotal)] <- 0
+
     teamSumSuccessfulPasses <- sum(plyrSuccessfulPassTotal)
     successfulPassProp <- (plyrSuccessfulPassTotal / teamSumSuccessfulPasses)
+
     touchPercent <- (as.numeric(joinOnSalariesTable[['Touch%']])) / 100
-    OCxG <- (xGProportion + successfulPassProp + touchPercent + (as.numeric(as.character(joinOnSalariesTable[['G+A']])) / as.numeric(as.character(joinOnSalariesTable[['GF']]))))
+    touchPercent[is.na(touchPercent)] <- 0
+
+    OF <- as.numeric(as.character(joinOnSalariesTable[['G+A']])) / as.numeric(as.character(joinOnSalariesTable[['GF']]))
+    OF[is.na(OF)] <- 0
+
+    OCxG <- (xGProportion + successfulPassProp + touchPercent + OF)
     OCxG <- rescale(OCxG, c(0,1))
 
     # Do DCxG calculation
@@ -247,15 +278,18 @@ populateTeamEPG <- function(remDr, teamAbbrev) {
     EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
     # Produce final data frame (Sorted by EPG)
-    epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$TotalSalary, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),]
-    colnames(epgFrame) <- c("Full Name", "Salary ($)", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
+    epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$Team, joinOnSalariesTable$TotalSalary, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),]
+    colnames(epgFrame) <- c("Full Name","Team", "Salary ($)", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
 
+    print(paste0('Returning completed frame for ', teamAbbrev, '.'))
     epgFrame
 }
 
-# Get all teams' EPGs
-retrieveAllTeamEPGs <- function() {
+retrieveSingleTeamEPG <- function(team) {
+    print(paste0('Getting EPGs for ', team, '...'))
+
     # connect to selenium server
+    print('Connecting to selenium server...')
     remoteDr <- remoteDriver(remoteServerAddr = "localhost"
                              , port = 4444
                              , browserName = "firefox"
@@ -263,25 +297,91 @@ retrieveAllTeamEPGs <- function() {
     remoteDr$open()
 
     # Build the player, team, and salary data sets from ASA
-    buildASATables(remoteDr)
+    if (!exists("xGoalsTable") || !exists("xGoalsPlyrTable") || !exists("plyrSalariesTable")) {
+        buildASATables(remoteDr)
+    }
 
-    # Create a data frame to hold all league data
-    total <- data.frame()
+    frame <- populateTeamEPG(remoteDr, team)
+
+    # close the Selenium connection to clean up since we're done scraping
+    print('Closing Selenium connection...')
+    remoteDr$quit()
 
     # Check if '/teams' exists in the current path - if not, create it
     if (!dir.exists(file.path(".", "teams"))) {
+        print('Creating /teams directory...')
         dir.create(file.path(".", "teams"))
     }
 
-    lapply(teams, function(team) {
+    # Write the frame to csv
+    fileName <- paste0('teams/', team, '.csv')
+    print(paste0('Writing frame to file ', fileName))
+    write.csv(frame, file = fileName)
+
+    print('Done!')
+}
+
+# Get subset of teams' EPGs
+retrieveTeamsEPG <- function(teamList) {
+    # print(paste0('Getting EPGs for ', teamList, '...'))
+
+    # connect to selenium server
+    print('Connecting to selenium server...')
+    remoteDr <- remoteDriver(remoteServerAddr = "localhost"
+                             , port = 4444
+                             , browserName = "firefox"
+    )
+    remoteDr$open()
+
+    # Build the player, team, and salary data sets from ASA
+    if (!exists("xGoalsTable") || !exists("xGoalsPlyrTable") || !exists("plyrSalariesTable")) {
+        buildASATables(remoteDr)
+    }
+
+
+    # Check if '/teams' exists in the current path - if not, create it
+    if (!dir.exists(file.path(".", "teams"))) {
+        print('Creating /teams directory...')
+        dir.create(file.path(".", "teams"))
+    }
+
+    # Build the EPG frame for each team specified
+    lapply(teamList, function(team) {
         frame <- populateTeamEPG(remoteDr, team)
-        write.csv(frame, file = paste0('teams/', team, '.csv'))
-        total <- rbind(total, frame)
+        fileName <- paste0('teams/', team, '.csv')
+        print(paste0('Writing frame to file ', fileName))
+        write.csv(frame, file = fileName)
     })
 
     # close the Selenium connection to clean up since we're done scraping
+    print('Closing Selenium connection...')
     remoteDr$quit()
 
-    # Optional: write the league file to csv
-    write.csv(total, 'mls-epg.csv')
+    print('Done!')
+}
+
+# Get all teams' EPGs
+retrieveAllTeamEPGs <- function(shouldMergeCSVs = FALSE) {
+    retrieveTeamsEPG(teams)
+
+    if (shouldMergeCSVs) {
+        mergeCSVs()
+    }
+}
+
+# Collate all csvs
+mergeCSVs <- function() {
+    fileList <- list.files(path = "teams", full.names = TRUE)
+    if (length(fileList) > 0) {
+        print('Non-zero amount of files found, stitching them together...')
+        dataFrameList <- lapply(fileList, read.csv)
+        total <- do.call("rbind", dataFrameList)
+        total <- total[order(-total$EPG),]
+        colnames(total) <- c("X","Full Name","Team", "Salary ($)", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
+
+        print('Writing team array\'s data to file mls-epg.csv...')
+        write.csv(total, 'mls-epg.csv')
+    }
+
+    print('Done!')
 }
