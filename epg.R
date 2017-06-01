@@ -10,6 +10,7 @@ require(data.table)
 require(stringi)
 require(scales)
 
+# Clean up existing workspace
 rm(list=ls())
 
 # Data set and method to convert foreign chars into normal English ones (from StackOverflow)
@@ -195,10 +196,27 @@ buildASATables <- function(remDr) {
 
     # -------
 
+    # Go to ASA's most recent Player Salaries sheet
+    remDr$navigate("http://www.americansocceranalysis.com/mls-tables-2017/")
+
+    # Scrape current standings into R data frames
+    eastConfHTML <- remDr$findElement(using = "css", "#block-yui_3_17_2_38_1488824086586_3878 > div > table:nth-child(2)")
+    eastConfTxt <- eastConfHTML$getElementAttribute("outerHTML")[[1]]
+    eastConfTable <- readHTMLTable(eastConfTxt, header=TRUE, as.data.frame=TRUE)[[1]]
+
+    westConfHTML <- remDr$findElement(using = "css", "#block-yui_3_17_2_38_1488824086586_3878 > div > table:nth-child(4)")
+    westConfTxt <- westConfHTML$getElementAttribute("outerHTML")[[1]]
+    westConfTable <- readHTMLTable(westConfTxt, header=TRUE, as.data.frame=TRUE)[[1]]
+
+    leagueStandingsTable <<- rbind(eastConfTable, westConfTable)
+
+    # -------
+
     # Do some minor cleanup - replace team names with Abbrev and add full name to player table; clean up salaries
     xGoalsTable$Team <<- mapvalues(xGoalsTable$Team,
                                   from=c("Atlanta United","Chicago","Columbus","Colorado","FC Dallas","DC United","Houston","L.A. Galaxy","Minnesota United","Montreal","New England","New York City FC","New York","Orlando City","Philadelphia","Portland","Salt Lake","Seattle","San Jose","Kansas City","Toronto","Vancouver"),
                                   to=teams)
+    leagueStandingsTable$Club <<-  mapvalues(leagueStandingsTable$Club,from=c("Atlanta United FC","Chicago Fire","Columbus Crew SC","Colorado Rapids","FC Dallas","D.C. United","Houston Dynamo","LA Galaxy","Minnesota United FC","Montreal Impact","New England Revolution","New York City FC","New York Red Bulls","Orlando City SC","Philadelphia Union","Portland Timbers","Real Salt Lake","Seattle Sounders FC","San Jose Earthquakes","Sporting Kansas City","Toronto FC","Vancouver Whitecaps FC"),to=teams)
     xGoalsPlyrTable$FullName <<- paste(xGoalsPlyrTable$First,xGoalsPlyrTable$Last)
     plyrSalariesTable$FullName <<- paste(plyrSalariesTable$First,plyrSalariesTable$Last)
     plyrSalariesTable$TotalSalary <<- as.numeric(gsub("\\$","", gsub(",","", gsub(",","", gsub(",","", plyrSalariesTable$`Base Salary`))))) + as.numeric(gsub("\\$","", gsub(",","", gsub(",","", gsub(",","", plyrSalariesTable$`Guaranteed Compensation`)))))
@@ -389,4 +407,86 @@ mergeCSVs <- function() {
     }
 
     print('Done!')
+}
+
+# Compare expected points to actual points for one team
+comparePoints <- function(team) {
+    teamFrame <- read.csv(paste0('teams/', team, '.csv'))
+    epgSum <- sum(teamFrame$EPG)
+
+    # Build the league standings data set from ASA
+    if (!exists("leagueStandingsTable")) {
+        # connect to selenium server
+        print('Connecting to selenium server...')
+        remoteDr <- remoteDriver(remoteServerAddr = "localhost"
+                                 , port = 4444
+                                 , browserName = "firefox"
+        )
+        remoteDr$open()
+        buildASATables(remoteDr)
+        remoteDr$quit()
+    }
+
+    teamRow <- leagueStandingsTable[leagueStandingsTable$Club == team, ]
+    teamActualPoints <- as.numeric(as.character(teamRow$PTS))
+    teamActualPPG <- as.numeric(as.character(teamRow$PPG))
+    eppg <- epgSum / as.numeric(as.character(teamRow$GP))
+    percentDifference <- (abs(teamActualPoints - epgSum) / ((epgSum + teamActualPoints) / 2))
+    print(paste(team, 'Expected Points:', epgSum))
+    print(paste(team, 'Actual Points:', teamActualPoints))
+    print(paste(team, 'Expected Points per Game:', eppg))
+    print(paste(team, 'Actual Points per Game:', teamActualPPG))
+    print(paste0('% Difference between Expected and Actual Points: ', percentDifference * 100, '%'))
+}
+
+# Compare EPG across the league
+compareLeagueTable <- function() {
+    # Get the EPG sums from the CSV Files
+    fileList <- list.files(path = "teams", full.names = TRUE)
+    if (length(fileList) > 0) {
+        print('Non-zero amount of files found, summing team EPGs...')
+        epgList <- lapply(fileList, function(file) {
+            teamFrame <- read.csv(file)
+            c(gsub('.csv',"",gsub('teams/',"",file)), sum(teamFrame$EPG))
+        })
+    }
+
+    # Build a simple data frame from the list of these sums
+    teamEpgFrame <- setNames(do.call(rbind.data.frame, epgList), c('Club', 'EPG'))
+
+    # Build the league standings data set from ASA
+    if (!exists("leagueStandingsTable")) {
+        # connect to selenium server
+        print('Connecting to selenium server...')
+        remoteDr <- remoteDriver(remoteServerAddr = "localhost"
+                                 , port = 4444
+                                 , browserName = "firefox"
+        )
+        remoteDr$open()
+        buildASATables(remoteDr)
+        remoteDr$quit()
+    }
+
+    # Join the sums and standings on 'Club' so everything is in one table
+    dt1 <- data.table(teamEpgFrame, key = "Club")
+    dt2 <- data.table(leagueStandingsTable, key = 'Club')
+    joinOnClubTable <- dt2[dt1]
+
+    # Calculate EPG per Game, % difference btwn EPG and Points
+    eppg <- as.numeric(as.character(joinOnClubTable$EPG))/ as.numeric(as.character(joinOnClubTable$GP))
+    percentDifference <- (as.numeric(as.character(joinOnClubTable$PTS)) - as.numeric(as.character(joinOnClubTable$EPG))) / ((as.numeric(as.character(joinOnClubTable$EPG)) + as.numeric(as.character(joinOnClubTable$PTS))) / 2) * 100
+
+    # Consolidate calculated and relevant data into a new data frame
+    consolidatedEPGFrame <- data.frame(joinOnClubTable$Club,joinOnClubTable$GP,as.numeric(as.character(joinOnClubTable$PTS)),as.numeric(as.character(joinOnClubTable$PPG)),joinOnClubTable$EPG, eppg, percentDifference)[order(percentDifference),]
+    colnames(consolidatedEPGFrame) <- c("Club", "Games Played", "Points", "Points per Game", "EPG", "EPG per Game", "EPG % Difference")
+
+    # Save the data frame to CSV File
+    write.csv(consolidatedEPGFrame, 'mls-epg-comparisons.csv')
+
+    # Optional: automatically view the data frame
+    # View(consolidatedEPGFrame)
+
+    # # Optional: plot points vs EPG
+    # plot(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), xlab="Points", ylab="EPG", main="Points vs EPG", type="n")
+    # text(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), labels=joinOnClubTable$Club, cex = 0.7)
 }

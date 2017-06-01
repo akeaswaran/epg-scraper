@@ -40,6 +40,10 @@ Make sure you have set the current working directory to the repo's directory via
 
 `mergeCSVs()`: Merges all CSV files under `/teams` into one big file for the entire league, which is saved in the working directory as `mls-epg.csv`.
 
+`comparePoints(team)`: Calculates the sum of the EPGs for all of a specific team's players and prints a comparison between EPG/EPG per game and Points/PPG to the console.
+
+`compareLeagueTable()`: Consolidates EPG sums for each club and league standings in one data frame, which is saved as `mls-epg-comparisons.csv` in the working directory.
+
 ## Example Outputs
 
 [Here's an example CSV file for Atlanta United produced by `retrieveSingleTeamEPG('ATL')`](https://github.com/akeaswaran/epg-scraper/blob/master/teams/ATL.csv). CSV files for other teams can be found in the [`/teams` folder](https://github.com/akeaswaran/epg-scraper/blob/master/teams).
