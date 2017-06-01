@@ -142,10 +142,10 @@ loadWSDataFrame <- function(driver, tableCssSelector, buttonCssSelector) {
         }
     })
 
-    producedFrame$Player <- trim(gsub("[[:digit:]]","", gsub("[[:punct:]]","",as.character(producedFrame$Player))))
-
     # Fix character encoding issues and replace foreign chars
     producedFrame$Player <- as.character(replaceForeignChars(iconv(as.character(producedFrame$Player), from="UTF-8", to="ISO-8859-1"), fromto))
+
+    producedFrame$Player <- trim(gsub("[[:digit:]]*,","",as.character(producedFrame$Player)))
 
     # Find sum of appearances
     app <- strsplit(as.character(producedFrame$Apps), "\\(")
