@@ -59,6 +59,9 @@ replaceForeignChars <- function(dat,fromto) {
     dat
 }
 
+# simple trim function
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+
 # Team dataset
 teams <- c("ATL","CHI","CLB","COL","DAL","DC","HOU","LA","MN","MTL","NE","NYC","NYRB","ORL","PHI","POR","RSL","SEA","SJ","SKC","TOR","VAN")
 
@@ -138,6 +141,8 @@ loadWSDataFrame <- function(driver, tableCssSelector, buttonCssSelector) {
             paste(x[1])
         }
     })
+
+    producedFrame$Player <- trim(gsub("[[:digit:]]","", gsub("[[:punct:]]","",as.character(producedFrame$Player))))
 
     # Fix character encoding issues and replace foreign chars
     producedFrame$Player <- as.character(replaceForeignChars(iconv(as.character(producedFrame$Player), from="UTF-8", to="ISO-8859-1"), fromto))
@@ -271,14 +276,14 @@ populateTeamEPG <- function(remDr, teamAbbrev) {
     DCxG <- rescale(((plyrAvgRat - sumAvgPlyrRat) / sumAvgPlyrRat), c(0,1))
 
     # Calculate weight for play time
-    appWeight <- (as.numeric(as.character(joinOnSalariesTable$Min)) / (as.numeric(as.character(joinOnSalariesTable$TotalPossibleMinutes))))
+    appWeight <- (as.numeric(as.character(joinOnSalariesTable$Mins)) / (as.numeric(as.character(joinOnSalariesTable$TotalPossibleMinutes))))
 
     # Calculate PCxG and EPG
     PCxG <- (OCxG + DCxG) * appWeight
     EPG <- ((3 * 0.483)+(1 * 0.281)) * PCxG
 
     # Produce final data frame (Sorted by EPG)
-    epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$Team, joinOnSalariesTable$TotalSalary, joinOnSalariesTable$Min, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),]
+    epgFrame = data.frame(joinOnSalariesTable$FullName, joinOnSalariesTable$Team, joinOnSalariesTable$TotalSalary, joinOnSalariesTable$Mins, as.numeric(joinOnSalariesTable$Apps), joinOnSalariesTable$TotalPossibleMinutes, appWeight, joinOnSalariesTable[['xGp96']], OCxG, DCxG, PCxG, EPG)[order(-EPG),]
     colnames(epgFrame) <- c("Full Name","Team", "Salary ($)", "Total Minutes","Appearances", "Total Possible Minutes", "Appearance Weight","xGoals", "Offensive Contribution to Team", "Defensive Contribution to Team", "Total Expected Player Contribution to Team", "EPG")
 
     print(paste0('Returning completed frame for ', teamAbbrev, '.'))
