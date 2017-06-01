@@ -445,14 +445,26 @@ compareLeagueTable <- function() {
     fileList <- list.files(path = "teams", full.names = TRUE)
     if (length(fileList) > 0) {
         print('Non-zero amount of files found, summing team EPGs...')
-        epgList <- lapply(fileList, function(file) {
+        epgList <- list()
+        teamPayrollList <- list()
+        lapply(fileList, function(file) {
             teamFrame <- read.csv(file)
-            c(gsub('.csv',"",gsub('teams/',"",file)), sum(teamFrame$EPG))
+            temp.df <- data.frame(teamFrame, stringsAsFactors = FALSE) # copy the original
+            temp.df[is.na(temp.df)] <- 0
+            teamFrame <- temp.df
+            remove('temp.df')
+            # Get avg EPG for the best 11 players (assuming those are the usual starters)
+            epgList[[gsub('.csv',"",gsub('teams/',"",file))]] <<- sum(teamFrame[1:11,]$EPG) / length(teamFrame[1:11,]$EPG)
+            teamPayrollList[[gsub('.csv',"",gsub('teams/',"",file))]] <<- sum(as.numeric(as.character(teamFrame$Salary....)))
         })
     }
 
     # Build a simple data frame from the list of these sums
-    teamEpgFrame <- setNames(do.call(rbind.data.frame, epgList), c('Club', 'EPG'))
+    teamEpgFrame <- setNames(data.frame(lNames = rep(names(epgList), lapply(epgList, length)),
+                                        lVal = unlist(epgList)), c('Club', 'EPG'))
+    # Collate salary data for each team
+    teamPayrollFrame <- setNames(data.frame(lNames = rep(names(teamPayrollList), lapply(teamPayrollList, length)),
+                                        lVal = unlist(teamPayrollList)), c('Club', 'Payroll'))
 
     # Build the league standings data set from ASA
     if (!exists("leagueStandingsTable")) {
@@ -467,27 +479,36 @@ compareLeagueTable <- function() {
         remoteDr$quit()
     }
 
-    # Join the sums and standings on 'Club' so everything is in one table
+    # Join the sums, standings, and salaries on 'Club' so everything is in one table
+    print('Joining data frames...')
     dt1 <- data.table(teamEpgFrame, key = "Club")
     dt2 <- data.table(leagueStandingsTable, key = 'Club')
-    joinOnClubTable <- dt2[dt1]
+    dt3 <- data.table(teamPayrollFrame, key = "Club")
+    joinOnClubTable <- dt2[dt3][dt1]
+
+
+    # Scale EPG by games played
+    joinOnClubTable$EPG <- as.numeric(as.character(joinOnClubTable$EPG)) * as.numeric(as.character(joinOnClubTable$GP))
 
     # Calculate EPG per Game, % difference btwn EPG and Points
-    eppg <- as.numeric(as.character(joinOnClubTable$EPG))/ as.numeric(as.character(joinOnClubTable$GP))
+    print('Running calculations...')
+    eppg <- as.numeric(as.character(joinOnClubTable$EPG)) / as.numeric(as.character(joinOnClubTable$GP))
     percentDifference <- (as.numeric(as.character(joinOnClubTable$PTS)) - as.numeric(as.character(joinOnClubTable$EPG))) / ((as.numeric(as.character(joinOnClubTable$EPG)) + as.numeric(as.character(joinOnClubTable$PTS))) / 2) * 100
 
     # Consolidate calculated and relevant data into a new data frame
-    consolidatedEPGFrame <- data.frame(joinOnClubTable$Club,joinOnClubTable$GP,as.numeric(as.character(joinOnClubTable$PTS)),as.numeric(as.character(joinOnClubTable$PPG)),joinOnClubTable$EPG, eppg, percentDifference)[order(percentDifference),]
-    colnames(consolidatedEPGFrame) <- c("Club", "Games Played", "Points", "Points per Game", "EPG", "EPG per Game", "EPG % Difference")
+    consolidatedEPGFrame <- data.frame(joinOnClubTable$Club,joinOnClubTable$Payroll,joinOnClubTable$GP,as.numeric(as.character(joinOnClubTable$PTS)),as.numeric(as.character(joinOnClubTable$PPG)),joinOnClubTable$EPG, eppg, percentDifference)[order(-percentDifference),]
+    colnames(consolidatedEPGFrame) <- c("Club", "Payroll", "Games Played", "Points", "Points per Game", "EPG", "EPG per Game", "EPG % Difference")
 
     # Save the data frame to CSV File
-    write.csv(consolidatedEPGFrame, 'mls-epg-comparisons.csv')
+    # write.csv(consolidatedEPGFrame, 'mls-epg-comparisons.csv')
 
     # Optional: automatically view the data frame
-    # View(consolidatedEPGFrame)
+    View(consolidatedEPGFrame)
 
     # # Optional: plot points vs EPG
-    # plot(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), xlab="Points", ylab="EPG", main="Points vs EPG", type="n")
+    # plot(log(as.numeric(as.character(joinOnClubTable$PTS))), log(as.numeric(as.character(joinOnClubTable$EPG))), xlab="log(Points)", ylab="log(EPG)", main="log(Points) vs log(EPG)")
+    # # abline(fit <- lm(log(as.numeric(as.character(joinOnClubTable$EPG))) ~ log(as.numeric(as.character(joinOnClubTable$PTS)))))
+    # # legend("topright", bty="n", legend=paste("R2 is", format(summary(fit)$adj.r.squared, digits=4)))
     # text(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), labels=joinOnClubTable$Club, cex = 0.7)
 
     print('Done!')
