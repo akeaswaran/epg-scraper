@@ -489,4 +489,6 @@ compareLeagueTable <- function() {
     # # Optional: plot points vs EPG
     # plot(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), xlab="Points", ylab="EPG", main="Points vs EPG", type="n")
     # text(as.numeric(as.character(joinOnClubTable$PTS)), as.numeric(as.character(joinOnClubTable$EPG)), labels=joinOnClubTable$Club, cex = 0.7)
+
+    print('Done!')
 }

@@ -46,9 +46,19 @@ Make sure you have set the current working directory to the repo's directory via
 
 ## Example Outputs
 
-[Here's an example CSV file for Atlanta United produced by `retrieveSingleTeamEPG('ATL')`](https://github.com/akeaswaran/epg-scraper/blob/master/teams/ATL.csv). CSV files for other teams can be found in the [`/teams` folder](https://github.com/akeaswaran/epg-scraper/blob/master/teams).
+[Example CSV file for Atlanta United via `retrieveSingleTeamEPG('ATL')`](https://github.com/akeaswaran/epg-scraper/blob/master/teams/ATL.csv). CSV files for other teams can be found in the [`/teams` folder](https://github.com/akeaswaran/epg-scraper/blob/master/teams).
 
-[Here's an example CSV output for the entire league using `retrieveAllTeamEPGs(shouldMergeCSVs = TRUE)`](https://github.com/akeaswaran/epg-scraper/blob/master/mls-epg.csv).
+[Example CSV output from `retrieveAllTeamEPGs(shouldMergeCSVs = TRUE)`](https://github.com/akeaswaran/epg-scraper/blob/master/mls-epg.csv).
+
+[Example CSV output from `compareLeagueTable()`](https://github.com/akeaswaran/epg-scraper/blob/master/mls-epg-comparisons.csv).
+
+Example console output from `comparePoints('ATL')`:
+    > comparePoints('ATL')
+    [1] "ATL Expected Points: 18.4296820313489"
+    [1] "ATL Actual Points: 18"
+    [1] "ATL Expected Points per Game: 1.53580683594574"
+    [1] "ATL Actual Points per Game: 1.5"
+    [1] "% Difference between Expected and Actual Points: 2.35896668534814%"
 
 ## License
 
