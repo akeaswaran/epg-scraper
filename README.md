@@ -53,6 +53,7 @@ Make sure you have set the current working directory to the repo's directory via
 [Example CSV output from `compareLeagueTable()`](https://github.com/akeaswaran/epg-scraper/blob/master/mls-epg-comparisons.csv).
 
 Example console output from `comparePoints('ATL')`:
+
     > comparePoints('ATL')
     [1] "ATL Expected Points: 18.4296820313489"
     [1] "ATL Actual Points: 18"
