@@ -23,7 +23,7 @@ Open the script in RStudio. Enter and run each of the following commands in the 
     install.packages("RSelenium")
     install.packages("XML")
     install.packages("plyr")
-    install.packages("data.tabl"e)
+    install.packages("data.table")
     install.packages("stringi")
     install.packages("scales")
 
